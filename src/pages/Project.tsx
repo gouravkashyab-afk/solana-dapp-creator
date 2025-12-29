@@ -1,16 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { useAuth } from '@/hooks/useAuth';
 import { useAIChat, AIChatMessage } from '@/hooks/useAIChat';
 import { useProjects } from '@/hooks/useProjects';
 import { useToast } from '@/hooks/use-toast';
-import { useCodeExtractor } from '@/hooks/useCodeExtractor';
+import { useArtifactParser } from '@/hooks/useArtifactParser';
+import { useVirtualFileSystem } from '@/hooks/useVirtualFileSystem';
 import SakuraIcon from '@/components/SakuraIcon';
 import CodePreview from '@/components/CodePreview';
 import CodeDisplay from '@/components/CodeDisplay';
+import { FileExplorer } from '@/components/FileExplorer';
+import { ShellPanel } from '@/components/ShellPanel';
 import {
   ArrowLeft,
   Send,
@@ -21,10 +25,12 @@ import {
   Tablet,
   Smartphone,
   Settings,
+  PanelLeftClose,
+  PanelLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type ViewMode = 'chat' | 'preview' | 'code';
+type ViewMode = 'preview' | 'code';
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 
 const Project = () => {
@@ -34,14 +40,40 @@ const Project = () => {
   const { projects } = useProjects();
   const { messages, sendMessage, isLoading } = useAIChat();
   const { toast } = useToast();
-  const { extractedCode, previewHtml, hasCode } = useCodeExtractor(messages);
+  const { artifact, parseFullContent, reset: resetParser } = useArtifactParser();
+  const vfs = useVirtualFileSystem();
 
   const [input, setInput] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('chat');
+  const [viewMode, setViewMode] = useState<ViewMode>('preview');
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
+  const [showFileExplorer, setShowFileExplorer] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const project = projects.find((p) => p.id === projectId);
+
+  // Sync artifact to VFS
+  useEffect(() => {
+    if (artifact) {
+      vfs.setProjectTitle(artifact.title);
+      artifact.files.forEach((file, path) => {
+        vfs.updateFileContent(path, file.content, file.isComplete);
+      });
+      // Process shell commands for dependencies
+      artifact.shellCommands.forEach(cmd => {
+        if (cmd.includes('npm install')) {
+          vfs.addDependency(cmd);
+        }
+      });
+    }
+  }, [artifact]);
+
+  // Parse artifact from latest assistant message
+  useEffect(() => {
+    const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
+    if (lastAssistantMessage?.content) {
+      parseFullContent(lastAssistantMessage.content);
+    }
+  }, [messages, parseFullContent]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -58,6 +90,8 @@ const Project = () => {
     
     const userMessage = input.trim();
     setInput('');
+    resetParser();
+    vfs.reset();
 
     try {
       await sendMessage(userMessage);
@@ -77,6 +111,65 @@ const Project = () => {
     }
   };
 
+  const handleFileSelect = useCallback((path: string) => {
+    vfs.setActiveFile(path);
+    setViewMode('code');
+  }, [vfs]);
+
+  const handleDependencyInstalled = useCallback((cmd: string) => {
+    vfs.addDependency(cmd);
+  }, [vfs]);
+
+  // Generate preview HTML from VFS
+  const generatePreviewHtml = useCallback(() => {
+    const files = vfs.getAllFiles();
+    if (files.length === 0) return null;
+
+    const appFile = files.find(f => f.path.includes('App.tsx') || f.path.includes('App.jsx'));
+    if (!appFile) return null;
+
+    // Build dependency imports from esm.sh
+    const depsArray = Array.from(vfs.dependencies);
+    const depScripts = depsArray
+      .filter(d => !['react', 'react-dom'].includes(d))
+      .map(dep => `<script src="https://esm.sh/${dep}"></script>`)
+      .join('\n    ');
+
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${vfs.projectTitle || 'Preview'}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://esm.sh/react@18"></script>
+  <script src="https://esm.sh/react-dom@18/client"></script>
+  <script src="https://esm.sh/lucide-react"></script>
+  ${depScripts}
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+    
+    ${appFile.content}
+    
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    if (typeof App !== 'undefined') {
+      root.render(<App />);
+    } else {
+      root.render(<div style={{padding: '20px', color: '#888'}}>No App component found</div>);
+    }
+  </script>
+</body>
+</html>`;
+  }, [vfs]);
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -86,6 +179,10 @@ const Project = () => {
   }
 
   if (!user) return null;
+
+  const files = vfs.getAllFiles();
+  const hasFiles = files.length > 0;
+  const previewHtml = generatePreviewHtml();
 
   return (
     <div className="h-screen bg-background flex flex-col">
@@ -100,21 +197,27 @@ const Project = () => {
             </Link>
             <div className="flex items-center gap-2">
               <SakuraIcon size="sm" />
-              <span className="font-semibold">{project?.name || 'Project'}</span>
+              <span className="font-semibold">{artifact?.title || project?.name || 'Project'}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* File Explorer Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowFileExplorer(!showFileExplorer)}
+              className="h-8 w-8"
+            >
+              {showFileExplorer ? (
+                <PanelLeftClose className="w-4 h-4" />
+              ) : (
+                <PanelLeft className="w-4 h-4" />
+              )}
+            </Button>
+
             {/* View Mode Toggles */}
             <div className="flex items-center border border-border rounded-lg p-1">
-              <Button
-                variant={viewMode === 'chat' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('chat')}
-                className="h-7 px-3"
-              >
-                Chat
-              </Button>
               <Button
                 variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
                 size="sm"
@@ -135,7 +238,7 @@ const Project = () => {
               </Button>
             </div>
 
-            {/* Device Mode (only in preview) */}
+            {/* Device Mode */}
             {viewMode === 'preview' && (
               <div className="flex items-center border border-border rounded-lg p-1">
                 <Button
@@ -173,96 +276,108 @@ const Project = () => {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Chat Panel */}
-        <div
-          className={cn(
-            'flex flex-col border-r border-border bg-background transition-all duration-300',
-            viewMode === 'chat' ? 'w-full' : 'w-1/2'
-          )}
-        >
-          {/* Messages */}
-          <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4 max-w-3xl mx-auto">
-              {/* Chat Messages */}
-              {messages.map((message) => (
-                <MessageBubble key={message.id} message={message} />
-              ))}
+      <div className="flex-1 overflow-hidden">
+        <ResizablePanelGroup direction="horizontal">
+          {/* Chat Panel */}
+          <ResizablePanel defaultSize={40} minSize={25}>
+            <div className="flex flex-col h-full border-r border-border bg-background">
+              {/* Messages */}
+              <ScrollArea className="flex-1 p-4">
+                <div className="space-y-4 max-w-3xl mx-auto">
+                  {messages.map((message) => (
+                    <MessageBubble key={message.id} message={message} />
+                  ))}
 
-              {/* Loading indicator */}
-              {isLoading && (
-                <div className="flex gap-3">
-                  <div className="shrink-0 pt-1">
-                    <SakuraIcon size="sm" glow />
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Sakura is thinking...</span>
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-          </ScrollArea>
-
-          {/* Input */}
-          <div className="p-4 border-t border-border bg-card">
-            <div className="max-w-3xl mx-auto flex gap-2">
-              <Input
-                placeholder="Describe what you want to build..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={isLoading}
-                className="flex-1"
-              />
-              <Button onClick={handleSend} disabled={!input.trim() || isLoading}>
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Preview/Code Panel */}
-        {viewMode !== 'chat' && (
-          <div className="flex-1 flex flex-col bg-muted/20">
-            {viewMode === 'preview' ? (
-              hasCode && previewHtml ? (
-                <CodePreview html={previewHtml} deviceMode={deviceMode} />
-              ) : (
-                <div className="flex-1 flex items-center justify-center p-8">
-                  <div
-                    className={cn(
-                      'bg-card border border-border rounded-lg shadow-xl transition-all duration-300',
-                      deviceMode === 'desktop' && 'w-full h-full',
-                      deviceMode === 'tablet' && 'w-[768px] h-[1024px] max-h-full',
-                      deviceMode === 'mobile' && 'w-[375px] h-[667px]'
-                    )}
-                  >
-                    <div className="flex items-center justify-center h-full text-muted-foreground">
-                      <div className="text-center">
-                        <SakuraIcon size="lg" className="mb-4" />
-                        <p>Live preview will appear here</p>
-                        <p className="text-sm">Start chatting with Sakura to build your dApp</p>
+                  {isLoading && (
+                    <div className="flex gap-3">
+                      <div className="shrink-0 pt-1">
+                        <SakuraIcon size="sm" glow />
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sakura is thinking...</span>
                       </div>
                     </div>
-                  </div>
+                  )}
+
+                  <div ref={messagesEndRef} />
                 </div>
-              )
-            ) : (
-              <div className="flex-1 p-4">
-                <div className="bg-card border border-border rounded-lg h-full overflow-hidden">
-                  <CodeDisplay codeBlocks={extractedCode} />
+              </ScrollArea>
+
+              {/* Input */}
+              <div className="p-4 border-t border-border bg-card">
+                <div className="max-w-3xl mx-auto flex gap-2">
+                  <Input
+                    placeholder="Describe what you want to build..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={isLoading}
+                    className="flex-1"
+                  />
+                  <Button onClick={handleSend} disabled={!input.trim() || isLoading}>
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                  </Button>
                 </div>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* Right Panel */}
+          <ResizablePanel defaultSize={60}>
+            <div className="flex h-full">
+              {/* File Explorer */}
+              {showFileExplorer && (
+                <FileExplorer
+                  fileTree={vfs.getFileTree()}
+                  activeFile={vfs.activeFile}
+                  currentlyWriting={artifact?.currentFile || null}
+                  onFileSelect={handleFileSelect}
+                  projectTitle={vfs.projectTitle}
+                  className="w-56 shrink-0"
+                />
+              )}
+
+              {/* Preview/Code Panel */}
+              <div className="flex-1 flex flex-col bg-[#011627]">
+                {viewMode === 'preview' ? (
+                  hasFiles && previewHtml ? (
+                    <CodePreview html={previewHtml} deviceMode={deviceMode} />
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center p-8">
+                      <div className="text-center text-muted-foreground">
+                        <SakuraIcon size="lg" className="mb-4 mx-auto" />
+                        <p className="text-lg font-medium">Live preview will appear here</p>
+                        <p className="text-sm">Start chatting with Sakura to build your app</p>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <CodeDisplay
+                    files={files}
+                    activeFile={vfs.activeFile}
+                    currentlyWriting={artifact?.currentFile || null}
+                    onFileSelect={handleFileSelect}
+                  />
+                )}
+
+                {/* Shell Panel */}
+                {artifact && artifact.shellCommands.length > 0 && (
+                  <ShellPanel
+                    commands={artifact.shellCommands}
+                    onDependencyInstalled={handleDependencyInstalled}
+                  />
+                )}
+              </div>
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </div>
   );
@@ -270,6 +385,11 @@ const Project = () => {
 
 const MessageBubble = ({ message }: { message: AIChatMessage }) => {
   const isUser = message.role === 'user';
+
+  // For assistant messages, hide the raw XML artifacts from display
+  const displayContent = isUser 
+    ? message.content 
+    : message.content.replace(/<boltArtifact[\s\S]*?<\/boltArtifact>/g, '').trim() || 'Building your app...';
 
   return (
     <div className={cn('flex gap-3', isUser && 'flex-row-reverse')}>
@@ -286,7 +406,7 @@ const MessageBubble = ({ message }: { message: AIChatMessage }) => {
             : 'bg-card border border-border'
         )}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        <p className="whitespace-pre-wrap">{displayContent}</p>
       </div>
     </div>
   );
