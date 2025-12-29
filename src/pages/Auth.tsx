@@ -22,7 +22,23 @@ const Auth = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  
+
+  const [supabaseUrl, setSupabaseUrl] = useState(() => {
+    try {
+      return localStorage.getItem('sakura.supabase.url') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => {
+    try {
+      return localStorage.getItem('sakura.supabase.anonKey') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const hasLocalSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
+
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user, loading, signUp, signIn, signInWithGoogle } = useAuth();
@@ -148,14 +164,99 @@ const Auth = () => {
           </p>
 
           {!supabase ? (
-            <Alert variant="destructive" className="mb-6">
-              <AlertTitle>Supabase not configured</AlertTitle>
-              <AlertDescription>
-                The frontend isn’t receiving <code>VITE_SUPABASE_URL</code> and{' '}
-                <code>VITE_SUPABASE_ANON_KEY</code>. Update them in your project
-                environment variables, then reload the Preview.
-              </AlertDescription>
-            </Alert>
+            <div className="mb-6 space-y-4">
+              <Alert variant="destructive">
+                <AlertTitle>Supabase not configured</AlertTitle>
+                <AlertDescription>
+                  The app isn’t receiving <code>VITE_SUPABASE_URL</code> and{' '}
+                  <code>VITE_SUPABASE_ANON_KEY</code> in the frontend build.
+                </AlertDescription>
+              </Alert>
+
+              <div className="rounded-lg border border-border bg-card p-4">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="sb-url">Project URL</Label>
+                    <Input
+                      id="sb-url"
+                      placeholder="https://xxxx.supabase.co"
+                      value={supabaseUrl}
+                      onChange={(e) => setSupabaseUrl(e.target.value)}
+                      autoComplete="off"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="sb-anon">Anon public key</Label>
+                    <Input
+                      id="sb-anon"
+                      placeholder="eyJhbGciOi..."
+                      value={supabaseAnonKey}
+                      onChange={(e) => setSupabaseAnonKey(e.target.value)}
+                      autoComplete="off"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      type="button"
+                      className="sm:flex-1"
+                      onClick={() => {
+                        if (!supabaseUrl || !supabaseAnonKey) {
+                          toast({
+                            variant: 'destructive',
+                            title: 'Missing values',
+                            description: 'Please enter both the Project URL and anon public key.',
+                          });
+                          return;
+                        }
+
+                        try {
+                          localStorage.setItem('sakura.supabase.url', supabaseUrl.trim());
+                          localStorage.setItem(
+                            'sakura.supabase.anonKey',
+                            supabaseAnonKey.trim()
+                          );
+                          window.location.reload();
+                        } catch {
+                          toast({
+                            variant: 'destructive',
+                            title: 'Could not save',
+                            description:
+                              'Local storage is blocked in this browser/session. Please enable it and try again.',
+                          });
+                        }
+                      }}
+                    >
+                      Save & reload
+                    </Button>
+
+                    {hasLocalSupabaseConfig ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="sm:flex-1"
+                        onClick={() => {
+                          try {
+                            localStorage.removeItem('sakura.supabase.url');
+                            localStorage.removeItem('sakura.supabase.anonKey');
+                            window.location.reload();
+                          } catch {
+                            // no-op
+                          }
+                        }}
+                      >
+                        Clear saved keys
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Find these in Supabase Dashboard → Project Settings → API.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : null}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -192,7 +293,7 @@ const Auth = () => {
             <Button 
               type="submit" 
               className="w-full bg-primary hover:bg-primary/90"
-              disabled={isLoading}
+              disabled={isLoading || !supabase}
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -216,7 +317,7 @@ const Auth = () => {
             variant="outline"
             className="w-full"
             onClick={handleGoogleSignIn}
-            disabled={isLoading}
+            disabled={isLoading || !supabase}
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
               <path
