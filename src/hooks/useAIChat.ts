@@ -1,0 +1,151 @@
+import { useState, useCallback } from 'react';
+
+export interface AIChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
+
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sakura-chat`;
+
+export function useAIChat() {
+  const [messages, setMessages] = useState<AIChatMessage[]>([
+    {
+      id: '1',
+      role: 'assistant',
+      content: `🌸 Welcome! I'm **Sakura**, your AI assistant for building Solana dApps.
+
+Tell me what you'd like to build, and I'll help you create it step by step. You can describe your idea in plain English!
+
+**Some things I can help with:**
+- Create SPL tokens or NFT collections
+- Build token swap interfaces
+- Design staking platforms
+- Set up wallet connections
+
+What would you like to build today?`,
+      timestamp: new Date(),
+    },
+  ]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const sendMessage = useCallback(async (content: string) => {
+    const userMessage: AIChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      content,
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+
+    let assistantContent = '';
+    const assistantId = (Date.now() + 1).toString();
+
+    const updateAssistant = (chunk: string) => {
+      assistantContent += chunk;
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        if (last?.role === 'assistant' && last.id === assistantId) {
+          return prev.map((m, i) =>
+            i === prev.length - 1 ? { ...m, content: assistantContent } : m
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: assistantId,
+            role: 'assistant' as const,
+            content: assistantContent,
+            timestamp: new Date(),
+          },
+        ];
+      });
+    };
+
+    try {
+      const allMessages = [...messages, userMessage].map(m => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      const response = await fetch(CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ messages: allMessages }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get response: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse Anthropic SSE events
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                updateAssistant(parsed.delta.text);
+              }
+            } catch {
+              // Ignore parse errors for partial JSON
+            }
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer) {
+        const lines = buffer.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                updateAssistant(parsed.delta.text);
+              }
+            } catch {
+              // Ignore
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      updateAssistant(
+        '🌸 I apologize, but I encountered an error. Please try again.'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [messages]);
+
+  return {
+    messages,
+    isLoading,
+    sendMessage,
+  };
+}
