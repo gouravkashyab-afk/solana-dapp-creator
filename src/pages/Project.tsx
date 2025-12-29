@@ -7,7 +7,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAIChat, AIChatMessage } from '@/hooks/useAIChat';
 import { useProjects } from '@/hooks/useProjects';
 import { useToast } from '@/hooks/use-toast';
+import { useCodeExtractor } from '@/hooks/useCodeExtractor';
 import SakuraIcon from '@/components/SakuraIcon';
+import CodePreview from '@/components/CodePreview';
+import CodeDisplay from '@/components/CodeDisplay';
 import {
   ArrowLeft,
   Send,
@@ -31,6 +34,7 @@ const Project = () => {
   const { projects } = useProjects();
   const { messages, sendMessage, isLoading } = useAIChat();
   const { toast } = useToast();
+  const { extractedCode, previewHtml, hasCode } = useCodeExtractor(messages);
 
   const [input, setInput] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
@@ -228,31 +232,32 @@ const Project = () => {
         {viewMode !== 'chat' && (
           <div className="flex-1 flex flex-col bg-muted/20">
             {viewMode === 'preview' ? (
-              <div className="flex-1 flex items-center justify-center p-8">
-                <div
-                  className={cn(
-                    'bg-card border border-border rounded-lg shadow-xl transition-all duration-300',
-                    deviceMode === 'desktop' && 'w-full h-full',
-                    deviceMode === 'tablet' && 'w-[768px] h-[1024px] max-h-full',
-                    deviceMode === 'mobile' && 'w-[375px] h-[667px]'
-                  )}
-                >
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    <div className="text-center">
-                      <SakuraIcon size="lg" className="mb-4" />
-                      <p>Live preview will appear here</p>
-                      <p className="text-sm">Start chatting with Sakura to build your dApp</p>
+              hasCode && previewHtml ? (
+                <CodePreview html={previewHtml} deviceMode={deviceMode} />
+              ) : (
+                <div className="flex-1 flex items-center justify-center p-8">
+                  <div
+                    className={cn(
+                      'bg-card border border-border rounded-lg shadow-xl transition-all duration-300',
+                      deviceMode === 'desktop' && 'w-full h-full',
+                      deviceMode === 'tablet' && 'w-[768px] h-[1024px] max-h-full',
+                      deviceMode === 'mobile' && 'w-[375px] h-[667px]'
+                    )}
+                  >
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      <div className="text-center">
+                        <SakuraIcon size="lg" className="mb-4" />
+                        <p>Live preview will appear here</p>
+                        <p className="text-sm">Start chatting with Sakura to build your dApp</p>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )
             ) : (
-              <div className="flex-1 flex flex-col">
-                <div className="flex-1 p-4 font-mono text-sm">
-                  <div className="bg-card border border-border rounded-lg p-4 h-full overflow-auto">
-                    <p className="text-muted-foreground">// Generated code will appear here</p>
-                    <p className="text-muted-foreground">// Start chatting with Sakura to generate code</p>
-                  </div>
+              <div className="flex-1 p-4">
+                <div className="bg-card border border-border rounded-lg h-full overflow-hidden">
+                  <CodeDisplay codeBlocks={extractedCode} />
                 </div>
               </div>
             )}
