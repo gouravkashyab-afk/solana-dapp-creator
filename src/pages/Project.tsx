@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -120,13 +120,13 @@ const Project = () => {
     vfs.addDependency(cmd);
   }, [vfs]);
 
-  // Generate preview HTML from VFS
-  const generatePreviewHtml = useCallback(() => {
-    const files = vfs.getAllFiles();
-    if (files.length === 0) return null;
+  // Generate preview HTML from VFS - use useMemo with actual state dependencies
+  const previewHtml = useMemo(() => {
+    const allFiles = Array.from(vfs.files.values());
+    if (allFiles.length === 0) return null;
 
-    const appFile = files.find(f => f.path.includes('App.tsx') || f.path.includes('App.jsx'));
-    if (!appFile) return null;
+    const appFile = allFiles.find(f => f.path.includes('App.tsx') || f.path.includes('App.jsx'));
+    if (!appFile || !appFile.content) return null;
 
     // Build dependency imports from esm.sh
     const depsArray = Array.from(vfs.dependencies);
@@ -168,7 +168,7 @@ const Project = () => {
   </script>
 </body>
 </html>`;
-  }, [vfs]);
+  }, [vfs.files, vfs.dependencies, vfs.projectTitle]);
 
   if (authLoading) {
     return (
@@ -182,7 +182,6 @@ const Project = () => {
 
   const files = vfs.getAllFiles();
   const hasFiles = files.length > 0;
-  const previewHtml = generatePreviewHtml();
 
   return (
     <div className="h-screen bg-background flex flex-col">
