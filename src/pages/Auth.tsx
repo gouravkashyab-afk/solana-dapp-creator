@@ -3,8 +3,10 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
 
@@ -140,10 +142,21 @@ const Auth = () => {
             {isSignUp ? 'Create your account' : 'Welcome back'}
           </h1>
           <p className="text-muted-foreground mb-8">
-            {isSignUp 
-              ? 'Start building Solana dApps with AI' 
+            {isSignUp
+              ? 'Start building Solana dApps with AI'
               : 'Sign in to continue to your projects'}
           </p>
+
+          {!supabase ? (
+            <Alert variant="destructive" className="mb-6">
+              <AlertTitle>Supabase not configured</AlertTitle>
+              <AlertDescription>
+                The frontend isn’t receiving <code>VITE_SUPABASE_URL</code> and{' '}
+                <code>VITE_SUPABASE_ANON_KEY</code>. Update them in your project
+                environment variables, then reload the Preview.
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
