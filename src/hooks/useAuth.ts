@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 const missingConfigError = () =>
   new Error(
-    'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your app environment variables.'
+    'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or configure them in the Auth page setup panel), then reload.'
   );
 
 export function useAuth() {
