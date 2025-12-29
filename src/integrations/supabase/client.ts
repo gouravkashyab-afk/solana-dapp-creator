@@ -5,6 +5,17 @@ const SUPABASE_URL =
 const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.SUPABASE_ANON_KEY;
 
+if (import.meta.env.DEV) {
+  const envKeys = Object.keys(import.meta.env as any).filter((k) =>
+    k.toUpperCase().includes('SUPABASE')
+  );
+  console.info('[Supabase] Frontend env check', {
+    hasUrl: !!SUPABASE_URL,
+    hasAnonKey: !!SUPABASE_ANON_KEY,
+    envKeys,
+  });
+}
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   // Don't hard-crash the whole app; allow non-auth pages (like Landing) to render.
   console.error(
