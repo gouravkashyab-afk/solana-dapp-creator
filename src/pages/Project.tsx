@@ -125,15 +125,22 @@ const Project = () => {
     const allFiles = Array.from(vfs.files.values());
     if (allFiles.length === 0) return null;
 
-    const appFile = allFiles.find(f => f.path.includes('App.tsx') || f.path.includes('App.jsx'));
+    const appFile = allFiles.find((f) => f.path.endsWith('App.tsx') || f.path.endsWith('App.jsx'));
     if (!appFile || !appFile.content) return null;
 
-    // Build dependency imports from esm.sh
-    const depsArray = Array.from(vfs.dependencies);
-    const depScripts = depsArray
-      .filter(d => !['react', 'react-dom'].includes(d))
-      .map(dep => `<script src="https://esm.sh/${dep}"></script>`)
-      .join('\n    ');
+    // For now, this previewer runs in an iframe with Babel (no real module resolution).
+    // We strip imports/exports so simple apps can render.
+    const processedAppCode = appFile.content
+      // Remove ESM imports (unsupported in this preview mode)
+      .replace(/^\s*import[\s\S]*?;\s*$/gm, '')
+      // Remove named exports
+      .replace(/^\s*export\s+\{[\s\S]*?\};\s*$/gm, '')
+      // Convert `export default function App` -> `function App`
+      .replace(/^\s*export\s+default\s+function\s+App\s*\(/m, 'function App(')
+      // Convert `export default` (anything else) -> `const App =`
+      .replace(/^\s*export\s+default\s+/m, 'const App = ')
+      // Remove `export default App;`
+      .replace(/^\s*export\s+default\s+App\s*;\s*$/gm, '');
 
     return `
 <!DOCTYPE html>
@@ -143,10 +150,8 @@ const Project = () => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${vfs.projectTitle || 'Preview'}</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://esm.sh/react@18"></script>
-  <script src="https://esm.sh/react-dom@18/client"></script>
-  <script src="https://esm.sh/lucide-react"></script>
-  ${depScripts}
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
@@ -154,21 +159,33 @@ const Project = () => {
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-type="module">
-    const { useState, useEffect, useRef, useCallback, useMemo } = React;
-    
-    ${appFile.content}
-    
-    const root = ReactDOM.createRoot(document.getElementById('root'));
+
+  <script type="text/babel" data-presets="react,typescript">
+    // Minimal icon stubs so common examples (Plus/Minus) don't crash without module imports.
+    const Icon = ({ children, ...props }) => (
+      <span {...props} style={{ display: 'inline-flex', width: '1em', height: '1em', alignItems: 'center', justifyContent: 'center' }}>
+        {children}
+      </span>
+    );
+    const Plus = (props) => <Icon {...props}>+</Icon>;
+    const Minus = (props) => <Icon {...props}>−</Icon>;
+
+    ${processedAppCode}
+
+    const rootEl = document.getElementById('root');
     if (typeof App !== 'undefined') {
-      root.render(<App />);
+      if (ReactDOM.createRoot) {
+        ReactDOM.createRoot(rootEl).render(<App />);
+      } else {
+        ReactDOM.render(<App />, rootEl);
+      }
     } else {
-      root.render(<div style={{padding: '20px', color: '#888'}}>No App component found</div>);
+      rootEl.innerHTML = '<div style="padding:20px;color:#888">No App component found</div>';
     }
   </script>
 </body>
 </html>`;
-  }, [vfs.files, vfs.dependencies, vfs.projectTitle]);
+  }, [vfs.files, vfs.projectTitle]);
 
   if (authLoading) {
     return (
