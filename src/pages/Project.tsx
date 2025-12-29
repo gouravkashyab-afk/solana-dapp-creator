@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/hooks/useAuth';
-import { useChatMessages, ChatMessage } from '@/hooks/useChatMessages';
+import { useAIChat, AIChatMessage } from '@/hooks/useAIChat';
 import { useProjects } from '@/hooks/useProjects';
 import { useToast } from '@/hooks/use-toast';
 import SakuraIcon from '@/components/SakuraIcon';
@@ -29,11 +29,10 @@ const Project = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const { projects } = useProjects();
-  const { messages, sendMessage, isLoading: messagesLoading } = useChatMessages(projectId ?? null);
+  const { messages, sendMessage, isLoading } = useAIChat();
   const { toast } = useToast();
 
   const [input, setInput] = useState('');
-  const [isSending, setIsSending] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -51,30 +50,19 @@ const Project = () => {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || isSending) return;
+    if (!input.trim() || isLoading) return;
     
     const userMessage = input.trim();
     setInput('');
-    setIsSending(true);
 
     try {
-      // Send user message
-      await sendMessage.mutateAsync({ content: userMessage, role: 'user' });
-      
-      // TODO: Call AI edge function and stream response
-      // For now, we'll add a placeholder assistant response
-      await sendMessage.mutateAsync({
-        content: `🌸 I received your message: "${userMessage}"\n\nI'm Sakura, your AI assistant. AI responses will be connected soon!`,
-        role: 'assistant',
-      });
+      await sendMessage(userMessage);
     } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Error',
         description: 'Failed to send message. Please try again.',
       });
-    } finally {
-      setIsSending(false);
     }
   };
 
@@ -192,41 +180,13 @@ const Project = () => {
           {/* Messages */}
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-4 max-w-3xl mx-auto">
-              {/* Welcome Message */}
-              {messages.length === 0 && (
-                <div className="flex gap-3">
-                  <div className="shrink-0 pt-1">
-                    <SakuraIcon size="sm" glow />
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <p className="text-foreground">
-                      Hi! I'm <span className="text-primary font-medium">Sakura</span>, your AI assistant for building Solana dApps.
-                    </p>
-                    <p className="text-muted-foreground">
-                      Tell me what you'd like to build, and I'll help you create it. You can describe your dApp in plain English!
-                    </p>
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      <SuggestionChip onClick={() => setInput('Create a token swap interface')}>
-                        Token Swap
-                      </SuggestionChip>
-                      <SuggestionChip onClick={() => setInput('Build an NFT minting page')}>
-                        NFT Minting
-                      </SuggestionChip>
-                      <SuggestionChip onClick={() => setInput('Create a staking dashboard')}>
-                        Staking Dashboard
-                      </SuggestionChip>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Chat Messages */}
               {messages.map((message) => (
                 <MessageBubble key={message.id} message={message} />
               ))}
 
               {/* Loading indicator */}
-              {isSending && (
+              {isLoading && (
                 <div className="flex gap-3">
                   <div className="shrink-0 pt-1">
                     <SakuraIcon size="sm" glow />
@@ -250,11 +210,11 @@ const Project = () => {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={isSending}
+                disabled={isLoading}
                 className="flex-1"
               />
-              <Button onClick={handleSend} disabled={!input.trim() || isSending}>
-                {isSending ? (
+              <Button onClick={handleSend} disabled={!input.trim() || isLoading}>
+                {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Send className="w-4 h-4" />
@@ -303,7 +263,7 @@ const Project = () => {
   );
 };
 
-const MessageBubble = ({ message }: { message: ChatMessage }) => {
+const MessageBubble = ({ message }: { message: AIChatMessage }) => {
   const isUser = message.role === 'user';
 
   return (
@@ -326,20 +286,5 @@ const MessageBubble = ({ message }: { message: ChatMessage }) => {
     </div>
   );
 };
-
-const SuggestionChip = ({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) => (
-  <button
-    onClick={onClick}
-    className="px-3 py-1.5 text-sm rounded-full border border-border bg-card hover:border-primary/50 hover:bg-primary/5 transition-colors"
-  >
-    {children}
-  </button>
-);
 
 export default Project;
