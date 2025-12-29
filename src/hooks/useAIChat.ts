@@ -28,15 +28,15 @@ export function useAIChat() {
     {
       id: '1',
       role: 'assistant',
-      content: `🌸 Welcome! I'm **Sakura**, your AI assistant for building Solana dApps.
+      content: `🌸 Welcome! I'm **Sakura**, your AI-powered web app builder.
 
-Tell me what you'd like to build, and I'll help you create it step by step. You can describe your idea in plain English!
+Tell me what you'd like to build, and I'll generate a complete working application for you. Just describe your idea in plain English!
 
-**Some things I can help with:**
-- Create SPL tokens or NFT collections
-- Build token swap interfaces
-- Design staking platforms
-- Set up wallet connections
+**I can help you build:**
+- React components and full applications
+- Interactive UIs with Tailwind CSS
+- Forms, dashboards, and data displays
+- Any web app you can imagine
 
 What would you like to build today?`,
       timestamp: new Date(),
