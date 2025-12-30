@@ -15,15 +15,17 @@ interface CodePreviewProps {
 
 function preprocessAppSource(source: string) {
   return source
-    // Strip ESM imports (we don't support module resolution in the preview runtime yet)
-    .replace(/^\s*import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm, '')
-    .replace(/^\s*import\s+['"][^'"]+['"];\s*$/gm, '')
+    // Strip all import statements (single-line and multi-line)
+    .replace(/import\s+[\s\S]*?from\s*['"][^'"]*['"];?/g, '')
+    .replace(/import\s*['"][^'"]*['"];?/g, '')
     // Strip named exports
-    .replace(/^\s*export\s+\{[\s\S]*?\};\s*$/gm, '')
-    // Convert default export forms into a local App binding
-    .replace(/^\s*export\s+default\s+function\s+(\w+)/m, 'function $1')
-    .replace(/^\s*export\s+default\s+/m, 'const App = ')
-    .replace(/^\s*export\s+default\s+\w+\s*;\s*$/gm, '');
+    .replace(/export\s*\{[^}]*\};?/g, '')
+    // Convert "export default function Name" to "function App"
+    .replace(/export\s+default\s+function\s+\w+/g, 'function App')
+    // Convert "export default () =>" or "export default Name" to "const App ="
+    .replace(/export\s+default\s+/g, 'const App = ')
+    // Remove standalone "export default ComponentName;" at end
+    .replace(/^const App = \w+;?\s*$/gm, '');
 }
 
 const CodePreview = ({ html: appSource, deviceMode }: CodePreviewProps) => {
