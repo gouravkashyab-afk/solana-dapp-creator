@@ -10,11 +10,14 @@ import { useProjects } from '@/hooks/useProjects';
 import { useToast } from '@/hooks/use-toast';
 import { useArtifactParser } from '@/hooks/useArtifactParser';
 import { useVirtualFileSystem } from '@/hooks/useVirtualFileSystem';
+import { useSolanaNetwork, SolanaNetwork } from '@/hooks/useSolanaNetwork';
 import SakuraIcon from '@/components/SakuraIcon';
 import CodePreview from '@/components/CodePreview';
 import CodeDisplay from '@/components/CodeDisplay';
 import { FileExplorer } from '@/components/FileExplorer';
 import { ShellPanel } from '@/components/ShellPanel';
+import { NetworkSelector } from '@/components/NetworkSelector';
+import Web3PreviewFrame from '@/components/Web3PreviewFrame';
 import {
   ArrowLeft,
   Send,
@@ -27,14 +30,14 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeft,
+  Zap,
   Globe,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { NetworkSelector, SolanaNetwork } from '@/components/NetworkSelector';
-import Web3PreviewFrame from '@/components/Web3PreviewFrame';
 
 type ViewMode = 'preview' | 'code';
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
+type PreviewMode = 'stub' | 'live';
 
 const Project = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -45,10 +48,12 @@ const Project = () => {
   const { toast } = useToast();
   const { artifact, parseFullContent, reset: resetParser } = useArtifactParser();
   const vfs = useVirtualFileSystem();
+  const { network, setNetwork } = useSolanaNetwork();
 
   const [input, setInput] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('preview');
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('stub');
   const [showFileExplorer, setShowFileExplorer] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -126,6 +131,16 @@ const Project = () => {
   // Get files array - this creates a new reference when VFS updates
   const allFiles = vfs.getAllFiles();
   const filesKey = allFiles.map(f => `${f.path}:${f.content?.length || 0}`).join('|');
+
+  // Detect if this is a Web3/Solana project
+  const isWeb3Project = useMemo(() => {
+    return allFiles.some(f => 
+      f.content?.includes('@solana/web3.js') || 
+      f.content?.includes('@solana/wallet-adapter') ||
+      f.content?.includes('useWallet') ||
+      f.content?.includes('useConnection')
+    );
+  }, [allFiles]);
 
   // Generate preview HTML from VFS
   const previewHtml = useMemo(() => {
@@ -285,6 +300,39 @@ const Project = () => {
               </div>
             )}
 
+            {/* Web3 Preview Mode Toggle */}
+            {viewMode === 'preview' && isWeb3Project && (
+              <div className="flex items-center border border-border rounded-lg p-1">
+                <Button
+                  variant={previewMode === 'stub' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setPreviewMode('stub')}
+                  className="h-7 px-3"
+                >
+                  <Code className="w-4 h-4 mr-1" />
+                  Stub
+                </Button>
+                <Button
+                  variant={previewMode === 'live' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setPreviewMode('live')}
+                  className="h-7 px-3"
+                >
+                  <Zap className="w-4 h-4 mr-1" />
+                  Live
+                </Button>
+              </div>
+            )}
+
+            {/* Network Selector for Web3 Projects */}
+            {isWeb3Project && (
+              <NetworkSelector
+                network={network}
+                onNetworkChange={setNetwork}
+                showWarning={true}
+              />
+            )}
+
             <Button variant="ghost" size="icon">
               <Settings className="w-5 h-5" />
             </Button>
@@ -365,7 +413,16 @@ const Project = () => {
               <div className="flex-1 flex flex-col bg-[#011627]">
                 {viewMode === 'preview' ? (
                   hasRenderablePreview ? (
-                    <CodePreview html={appCode!} deviceMode={deviceMode} />
+                    isWeb3Project && previewMode === 'live' ? (
+                      <Web3PreviewFrame 
+                        appSource={appCode!} 
+                        network={network} 
+                        deviceMode={deviceMode}
+                        projectTitle={vfs.projectTitle}
+                      />
+                    ) : (
+                      <CodePreview html={appCode!} deviceMode={deviceMode} />
+                    )
                   ) : (
                     <div className="flex-1 flex items-center justify-center p-8">
                       <div className="text-center text-muted-foreground">
