@@ -27,8 +27,11 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeft,
+  Globe,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { NetworkSelector, SolanaNetwork } from '@/components/NetworkSelector';
+import Web3PreviewFrame from '@/components/Web3PreviewFrame';
 
 type ViewMode = 'preview' | 'code';
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
