@@ -120,72 +120,66 @@ const Project = () => {
     vfs.addDependency(cmd);
   }, [vfs]);
 
-  // Generate preview HTML from VFS - use useMemo with actual state dependencies
+  // Get files array - this creates a new reference when VFS updates
+  const allFiles = vfs.getAllFiles();
+  const filesKey = allFiles.map(f => `${f.path}:${f.content?.length || 0}`).join('|');
+
+  // Generate preview HTML from VFS
   const previewHtml = useMemo(() => {
-    const allFiles = Array.from(vfs.files.values());
     if (allFiles.length === 0) return null;
 
     const appFile = allFiles.find((f) => f.path.endsWith('App.tsx') || f.path.endsWith('App.jsx'));
     if (!appFile || !appFile.content) return null;
 
-    // For now, this previewer runs in an iframe with Babel (no real module resolution).
-    // We strip imports/exports so simple apps can render.
+    // Strip imports/exports for inline Babel execution
     const processedAppCode = appFile.content
-      // Remove ESM imports (unsupported in this preview mode)
-      .replace(/^\s*import[\s\S]*?;\s*$/gm, '')
-      // Remove named exports
+      .replace(/^\s*import[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm, '')
+      .replace(/^\s*import\s+['"][^'"]+['"];\s*$/gm, '')
       .replace(/^\s*export\s+\{[\s\S]*?\};\s*$/gm, '')
-      // Convert `export default function App` -> `function App`
-      .replace(/^\s*export\s+default\s+function\s+App\s*\(/m, 'function App(')
-      // Convert `export default` (anything else) -> `const App =`
+      .replace(/^\s*export\s+default\s+function\s+(\w+)/m, 'function $1')
       .replace(/^\s*export\s+default\s+/m, 'const App = ')
-      // Remove `export default App;`
-      .replace(/^\s*export\s+default\s+App\s*;\s*$/gm, '');
+      .replace(/^\s*export\s+default\s+\w+\s*;\s*$/gm, '');
 
-    return `
-<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${vfs.projectTitle || 'Preview'}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"><\/script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"><\/script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
   <style>
     body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+    #root { min-height: 100vh; }
   </style>
 </head>
 <body>
   <div id="root"></div>
-
   <script type="text/babel" data-presets="react,typescript">
-    // Minimal icon stubs so common examples (Plus/Minus) don't crash without module imports.
-    const Icon = ({ children, ...props }) => (
-      <span {...props} style={{ display: 'inline-flex', width: '1em', height: '1em', alignItems: 'center', justifyContent: 'center' }}>
-        {children}
-      </span>
-    );
-    const Plus = (props) => <Icon {...props}>+</Icon>;
-    const Minus = (props) => <Icon {...props}>−</Icon>;
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+    
+    // Icon stubs
+    const Plus = (props) => <span {...props}>+</span>;
+    const Minus = (props) => <span {...props}>−</span>;
 
     ${processedAppCode}
 
-    const rootEl = document.getElementById('root');
-    if (typeof App !== 'undefined') {
-      if (ReactDOM.createRoot) {
+    try {
+      const rootEl = document.getElementById('root');
+      if (typeof App !== 'undefined') {
         ReactDOM.createRoot(rootEl).render(<App />);
       } else {
-        ReactDOM.render(<App />, rootEl);
+        rootEl.innerHTML = '<div style="padding:20px;color:#888">No App component found</div>';
       }
-    } else {
-      rootEl.innerHTML = '<div style="padding:20px;color:#888">No App component found</div>';
+    } catch (err) {
+      document.getElementById('root').innerHTML = '<div style="padding:20px;color:red">' + err.message + '</div>';
     }
-  </script>
+  <\/script>
 </body>
 </html>`;
-  }, [vfs.files, vfs.projectTitle]);
+  }, [filesKey, vfs.projectTitle]);
 
   if (authLoading) {
     return (
@@ -197,8 +191,7 @@ const Project = () => {
 
   if (!user) return null;
 
-  const files = vfs.getAllFiles();
-  const hasFiles = files.length > 0;
+  const hasFiles = allFiles.length > 0;
 
   return (
     <div className="h-screen bg-background flex flex-col">
@@ -376,7 +369,7 @@ const Project = () => {
                   )
                 ) : (
                   <CodeDisplay
-                    files={files}
+                    files={allFiles}
                     activeFile={vfs.activeFile}
                     currentlyWriting={artifact?.currentFile || null}
                     onFileSelect={handleFileSelect}
