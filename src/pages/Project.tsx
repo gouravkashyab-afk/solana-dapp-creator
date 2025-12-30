@@ -361,8 +361,8 @@ const Project = () => {
               {/* Preview/Code Panel */}
               <div className="flex-1 flex flex-col bg-[#011627]">
                 {viewMode === 'preview' ? (
-                  hasFiles && previewHtml ? (
-                    <CodePreview html={previewHtml} deviceMode={deviceMode} />
+                  hasRenderablePreview ? (
+                    <CodePreview html={appCode!} deviceMode={deviceMode} />
                   ) : (
                     <div className="flex-1 flex items-center justify-center p-8">
                       <div className="text-center text-muted-foreground">
