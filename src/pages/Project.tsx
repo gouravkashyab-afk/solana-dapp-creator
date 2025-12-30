@@ -193,6 +193,11 @@ const Project = () => {
 
   const hasFiles = allFiles.length > 0;
 
+  const appCode =
+    allFiles.find((f) => f.path.endsWith('App.tsx') || f.path.endsWith('App.jsx'))?.content ?? null;
+
+  const hasRenderablePreview = Boolean(appCode && appCode.trim().length > 0);
+
   return (
     <div className="h-screen bg-background flex flex-col">
       {/* Header */}
